@@ -39,8 +39,8 @@
 
 ## 🔥 News
 - __[2025.10.26]__: 👑 **We achieved the Top1 on [Artificial Analysis Leaderboard](https://artificialanalysis.ai/image/leaderboard/text-to-image?open-weights=true) for text-to-image open-source models.**
-  <img width="698" height="633" alt="image" src="https://github.com/user-attachments/assets/e9b6ad7e-5453-45c7-a9e6-10531617e5b9" />
-
+  
+  <img width="701" height="213" alt="image" src="https://github.com/user-attachments/assets/bc8765c3-5a1e-4e66-89f8-368136ec8492" />
 - __[2025.9.12]__:  🎉 We released the complete training code. We also share tips and experiences to help you train your models. You’re welcome to discuss and ask questions in the issues! 💬✨
 - __[2025.9.12]__:  🎉 We provide a standard workflow—feel free to use it in ComfyUI.
 - __[2025.9.8]__:   🎉 We released the paper, checkpoint, inference code.
