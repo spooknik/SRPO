@@ -502,10 +502,19 @@ def train_one_step(
     total_loss = 0.0
     optimizer.zero_grad()
 
-    (
-        encoder_hidden_states,
-        caption,
-    ) = next(loader)
+    # Get data from loader
+    # WAN dataset returns: (encoder_hidden_states, captions)
+    data_item = next(loader)
+
+    # Handle both wrapped and unwrapped dataloaders
+    if len(data_item) == 2:
+        # Direct from WAN dataset
+        encoder_hidden_states, caption = data_item
+    elif len(data_item) == 4:
+        # From FLUX-style wrapper (shouldn't happen with sp_size=1)
+        encoder_hidden_states, _, _, caption = data_item
+    else:
+        raise ValueError(f"Unexpected data format: {len(data_item)} items")
 
     loss = SRPO_train_wan(
         args,
@@ -696,13 +705,19 @@ def main(args):
         disable=local_rank > 0,
     )
 
-    data_loader = sp_parallel_dataloader_wrapper(
-        train_dataloader,
-        device,
-        args.train_batch_size,
-        args.sp_size,
-        args.train_sp_batch_size,
-    )
+    # Use simple iterator when sp_size=1 (no sequence parallelism)
+    # WAN dataset returns (encoder_hidden_states, captions) which is incompatible with FLUX wrapper
+    if args.sp_size == 1:
+        data_loader = iter(train_dataloader)
+    else:
+        # For sequence parallelism (sp_size > 1), use the wrapper
+        data_loader = sp_parallel_dataloader_wrapper(
+            train_dataloader,
+            device,
+            args.train_batch_size,
+            args.sp_size,
+            args.train_sp_batch_size,
+        )
 
     step_times = deque(maxlen=100)
 
