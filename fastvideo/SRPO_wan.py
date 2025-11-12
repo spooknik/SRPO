@@ -283,15 +283,29 @@ def run_sample_step_wan(
         transformer_low_noise.eval()
 
         with torch.autocast("cuda", torch.bfloat16):
-            # WAN transformer forward pass
+            # WAN transformer forward pass (conditional)
             # Note: For T2I, we set num_frames=1
-            pred = transformer_low_noise(
+            pred_cond = transformer_low_noise(
                 hidden_states=z,
                 encoder_hidden_states=encoder_hidden_states,
                 timestep=timesteps,
-                guidance=guidance_scale,
                 return_dict=False,
             )[0]
+
+            # Apply classifier-free guidance if guidance_scale != 1.0
+            if guidance_scale != 1.0:
+                # Create unconditional embeddings (zeros)
+                uncond_embeddings = torch.zeros_like(encoder_hidden_states)
+                pred_uncond = transformer_low_noise(
+                    hidden_states=z,
+                    encoder_hidden_states=uncond_embeddings,
+                    timestep=timesteps,
+                    return_dict=False,
+                )[0]
+                # CFG formula: output = uncond + scale * (cond - uncond)
+                pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
+            else:
+                pred = pred_cond
 
         z = wan_step(pred, z.to(torch.float32), sigmas=sigma_schedule, index=i)
         z = z.to(torch.bfloat16)
@@ -445,11 +459,12 @@ def SRPO_train_wan(
 
             timesteps = torch.full([latents.shape[0]], sigma, device=latents.device, dtype=torch.float32)
 
+            # During training, we skip CFG to save memory and computation
+            # The model is trained with conditional embeddings directly
             pred = transformer_low_noise(
                 hidden_states=latents,
                 encoder_hidden_states=encoder_hidden_states,
                 timestep=timesteps,
-                guidance=guidance_scale,
                 return_dict=False,
             )[0]
 
