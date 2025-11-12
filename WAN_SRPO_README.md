@@ -21,6 +21,109 @@ Instead of training the full WAN MoE architecture, we focus on the **low-noise e
 | **Inference Steps** | 25-50 | 40 (standard) |
 | **Latent Shape** | (B, 16, H/8, W/8) | (B, 4, 1, H/16, W/16) for T2I |
 
+## Hardware Requirements
+
+### Multi-GPU Setup (Recommended)
+
+**8x A100 (80GB each)**:
+- Default configuration works out-of-the-box
+- Training time: ~10-15 minutes for 100 steps
+- Uses FSDP for distributed training
+
+### Single GPU Setup
+
+#### RTX 6000 Pro (96GB VRAM) ✅
+
+Perfect for WAN SRPO! Here's the memory breakdown:
+
+**With fp32 master weights** (default):
+```
+28GB (model) + 56GB (optimizer) + 28GB (gradients) + 10GB (activations) + 5GB (other)
+= ~127GB ❌ Won't fit
+```
+
+**With bf16 master weights** (recommended):
+```
+14GB (model) + 28GB (optimizer) + 14GB (gradients) + 10GB (activations) + 5GB (other)
+= ~71GB ✅ Fits comfortably with 25GB headroom!
+```
+
+#### Configuration for Single RTX 6000 Pro
+
+Edit `scripts/finetune/SRPO_training_wan_t2i.sh`:
+
+```bash
+# GPU settings
+export NPROC_PER_NODE=1  # Single GPU
+
+# Optimize for 96GB VRAM
+TRAIN_BATCH_SIZE=2              # Increased from 1 (you have the memory!)
+GRADIENT_ACCUMULATION_STEPS=4   # Effective batch size = 2×4 = 8
+MASTER_WEIGHT_TYPE="bf16"       # Critical: Change from fp32 to bf16
+
+# Start with conservative resolution
+TRAIN_HEIGHT=512
+TRAIN_WIDTH=512
+VIS_SIZE=1024
+
+# Add to torchrun arguments:
+torchrun ... \
+    --master_weight_type bf16 \
+    ...
+```
+
+**Expected performance**:
+- Memory usage: ~70-75GB
+- Training speed: ~5-10 seconds/step
+- Total training time: ~15-30 minutes for 100 steps
+
+**Why bf16 works perfectly here**:
+- RTX 6000 Pro (Blackwell) has excellent bf16 Tensor Core performance
+- Saves ~55GB of memory vs fp32
+- Negligible quality loss for fine-tuning
+- Original SRPO paper likely used bf16/fp16 training
+
+#### Alternative: CPU Offload
+
+If you prefer fp32 precision:
+
+```bash
+# Add this flag to keep fp32 but offload optimizer to CPU
+--use_cpu_offload
+```
+
+**Trade-off**: ~20-30% slower training due to CPU↔GPU memory transfers, but preserves full fp32 precision.
+
+### Other Single GPU Configurations
+
+**RTX 4090 (24GB)**: Requires aggressive optimization
+```bash
+TRAIN_BATCH_SIZE=1
+GRADIENT_ACCUMULATION_STEPS=1
+TRAIN_HEIGHT=256
+TRAIN_WIDTH=256
+--master_weight_type bf16
+--use_cpu_offload  # Essential
+```
+
+**A100 (40GB)**: Good middle ground
+```bash
+TRAIN_BATCH_SIZE=1
+GRADIENT_ACCUMULATION_STEPS=2
+TRAIN_HEIGHT=512
+TRAIN_WIDTH=512
+--master_weight_type bf16
+```
+
+**H100 (80GB)**: Excellent single-GPU option
+```bash
+TRAIN_BATCH_SIZE=2
+GRADIENT_ACCUMULATION_STEPS=4
+TRAIN_HEIGHT=512
+TRAIN_WIDTH=512
+--master_weight_type bf16
+```
+
 ## Installation
 
 ### Prerequisites
@@ -58,6 +161,27 @@ python ./scripts/huggingface/download_hf.py --repo_id yuvalkirstain/PickScore_v1
 
 ### 1. Prepare Caption Data
 
+#### Option A: Convert from YAML (If you have prompts.yaml)
+
+If you already have a `prompts.yaml` file in the project root:
+
+```yaml
+prompts:
+  - A beautiful sunset over the ocean
+  - A cat sitting on a windowsill
+  - An astronaut riding a horse
+```
+
+Simply run the conversion script:
+
+```bash
+bash scripts/utils/convert_prompts.sh
+```
+
+This will automatically create `./data/captions.json` with the correct format.
+
+#### Option B: Create JSON Manually
+
 Create a JSON file with your training captions:
 
 ```json
@@ -91,11 +215,32 @@ This will:
 
 ### 3. Run SRPO Training
 
+#### Option A: Single GPU (RTX 6000 Pro 96GB) - Recommended Script
+
+Use the pre-configured single GPU script (already optimized):
+
+```bash
+bash scripts/finetune/SRPO_training_wan_t2i_single_gpu.sh
+```
+
+This script is already configured with:
+- `NPROC_PER_NODE=1` (single GPU)
+- `TRAIN_BATCH_SIZE=2` (utilizes 96GB VRAM)
+- `GRADIENT_ACCUMULATION_STEPS=4` (effective batch size = 8)
+- `MASTER_WEIGHT_TYPE="bf16"` (saves ~55GB memory)
+- Expected memory usage: ~70-75GB
+
+#### Option B: Multi-GPU (8x A100) or Custom Setup
+
+Edit `scripts/finetune/SRPO_training_wan_t2i.sh` for your hardware, then run:
+
 ```bash
 bash scripts/finetune/SRPO_training_wan_t2i.sh
 ```
 
-**Training time**: ~10-15 minutes for 100 steps on 8x A100 GPUs.
+**Training time**:
+- 8x A100 GPUs: ~10-15 minutes for 100 steps
+- Single RTX 6000 Pro: ~15-30 minutes for 100 steps
 
 ### 4. Monitor Training
 
