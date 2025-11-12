@@ -5,20 +5,50 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from diffusers import AutoencoderKLHunyuanVideo, AutoencoderKLMochi
 from torch import nn
 from transformers import AutoTokenizer, T5EncoderModel
 
-from fastvideo.models.hunyuan.modules.models import (
-    HYVideoDiffusionTransformer, MMDoubleStreamBlock, MMSingleStreamBlock)
-from fastvideo.models.hunyuan.text_encoder import TextEncoder
-from fastvideo.models.hunyuan.vae.autoencoder_kl_causal_3d import \
-    AutoencoderKLCausal3D
-from fastvideo.models.hunyuan_hf.modeling_hunyuan import (
-    HunyuanVideoSingleTransformerBlock, HunyuanVideoTransformer3DModel,
-    HunyuanVideoTransformerBlock)
-from fastvideo.models.mochi_hf.modeling_mochi import (MochiTransformer3DModel,
-                                                      MochiTransformerBlock)
+# Conditional imports for models that may have missing dependencies
+try:
+    from diffusers import AutoencoderKLHunyuanVideo, AutoencoderKLMochi
+except (ImportError, ModuleNotFoundError, RuntimeError):
+    print("Warning: Could not import Hunyuan/Mochi VAEs from diffusers")
+    AutoencoderKLHunyuanVideo = None
+    AutoencoderKLMochi = None
+
+try:
+    from fastvideo.models.hunyuan.modules.models import (
+        HYVideoDiffusionTransformer, MMDoubleStreamBlock, MMSingleStreamBlock)
+    from fastvideo.models.hunyuan.text_encoder import TextEncoder
+    from fastvideo.models.hunyuan.vae.autoencoder_kl_causal_3d import AutoencoderKLCausal3D
+except (ImportError, ModuleNotFoundError, RuntimeError) as e:
+    print(f"Warning: Could not import Hunyuan models: {e}")
+    print("This is OK if you're not using Hunyuan models.")
+    HYVideoDiffusionTransformer = None
+    MMDoubleStreamBlock = type('MMDoubleStreamBlock', (), {})
+    MMSingleStreamBlock = type('MMSingleStreamBlock', (), {})
+    TextEncoder = None
+    AutoencoderKLCausal3D = None
+
+try:
+    from fastvideo.models.hunyuan_hf.modeling_hunyuan import (
+        HunyuanVideoSingleTransformerBlock, HunyuanVideoTransformer3DModel,
+        HunyuanVideoTransformerBlock)
+except (ImportError, ModuleNotFoundError, RuntimeError) as e:
+    print(f"Warning: Could not import Hunyuan HF models: {e}")
+    print("This is OK if you're not using Hunyuan models.")
+    HunyuanVideoSingleTransformerBlock = type('HunyuanVideoSingleTransformerBlock', (), {})
+    HunyuanVideoTransformer3DModel = None
+    HunyuanVideoTransformerBlock = type('HunyuanVideoTransformerBlock', (), {})
+
+try:
+    from fastvideo.models.mochi_hf.modeling_mochi import (MochiTransformer3DModel, MochiTransformerBlock)
+except (ImportError, ModuleNotFoundError, RuntimeError) as e:
+    print(f"Warning: Could not import Mochi models: {e}")
+    print("This is OK if you're not using Mochi models.")
+    MochiTransformer3DModel = None
+    MochiTransformerBlock = type('MochiTransformerBlock', (), {})
+
 from fastvideo.utils.logging_ import main_print
 from diffusers.models.transformers.transformer_flux import FluxTransformer2DModel, FluxTransformerBlock, FluxSingleTransformerBlock
 
@@ -358,13 +388,36 @@ def load_text_encoder(model_type, pretrained_model_name_or_path, device):
 
 
 def get_no_split_modules(transformer):
-    # if of type MochiTransformer3DModel
-    if isinstance(transformer, MochiTransformer3DModel):
+    # Import WAN models here to avoid import at module level
+    try:
+        from diffusers import WanTransformer3DModel
+    except ImportError:
+        WanTransformer3DModel = None
+
+    # Check for WAN transformer
+    if WanTransformer3DModel and isinstance(transformer, WanTransformer3DModel):
+        # WAN uses similar structure to other transformers
+        # Return the transformer block types for WAN
+        # For now, we'll introspect the model to find the block types
+        try:
+            # Try to get the block type from the model's modules
+            for module in transformer.modules():
+                module_name = module.__class__.__name__
+                if 'TransformerBlock' in module_name or 'Block' in module_name:
+                    return (module.__class__,)
+        except:
+            pass
+        # Fallback: return a generic tuple
+        print(f"Warning: Could not determine block types for WAN transformer, using generic")
+        return (torch.nn.Module,)
+
+    # Check other model types (with None checks)
+    if MochiTransformer3DModel and isinstance(transformer, MochiTransformer3DModel):
         return (MochiTransformerBlock, )
-    elif isinstance(transformer, HunyuanVideoTransformer3DModel):
+    elif HunyuanVideoTransformer3DModel and isinstance(transformer, HunyuanVideoTransformer3DModel):
         return (HunyuanVideoSingleTransformerBlock,
                 HunyuanVideoTransformerBlock)
-    elif isinstance(transformer, HYVideoDiffusionTransformer):
+    elif HYVideoDiffusionTransformer and isinstance(transformer, HYVideoDiffusionTransformer):
         return (MMDoubleStreamBlock, MMSingleStreamBlock)
     elif isinstance(transformer, FluxTransformer2DModel):
         return (FluxTransformerBlock, FluxSingleTransformerBlock)
