@@ -12,7 +12,15 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
 from torch.distributed.fsdp import MixedPrecision, ShardingStrategy
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 
-from fastvideo.models.mochi_hf.modeling_mochi import MochiTransformerBlock
+# Conditional import to avoid bitsandbytes/triton issues when not using Mochi
+try:
+    from fastvideo.models.mochi_hf.modeling_mochi import MochiTransformerBlock
+except (ImportError, ModuleNotFoundError, RuntimeError) as e:
+    # If Mochi import fails (due to bitsandbytes/triton), use a placeholder
+    print(f"Warning: Could not import MochiTransformerBlock: {e}")
+    print("This is OK if you're not using Mochi models.")
+    MochiTransformerBlock = type('MochiTransformerBlock', (), {})
+
 from fastvideo.utils.load import get_no_split_modules
 
 non_reentrant_wrapper = partial(

@@ -31,6 +31,11 @@ from accelerate.utils import set_seed
 from tqdm.auto import tqdm
 from fastvideo.utils.fsdp_util import get_dit_fsdp_kwargs, apply_fsdp_checkpointing
 from diffusers.optimization import get_scheduler
+
+# Disable bitsandbytes check (not needed for bf16 training)
+import os
+os.environ['BITSANDBYTES_NOWELCOME'] = '1'
+
 from diffusers.utils import check_min_version
 from fastvideo.dataset.latent_wan_rl_datasets import LatentDataset, latent_collate_function
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
